@@ -4,8 +4,8 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, TimerAction, IncludeLaunchDescription
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.actions import ExecuteProcess
@@ -23,6 +23,8 @@ def generate_launch_description():
     rviz_use = LaunchConfiguration('rviz')
     rviz_cfg = LaunchConfiguration('rviz_cfg')
     bag_folder = LaunchConfiguration('bag_folder')
+    qos_overrides_path = LaunchConfiguration('qos_overrides_path')
+    has_qos_overrides = PythonExpression(["'", qos_overrides_path, "' != ''"])
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         'use_sim_time',
@@ -53,6 +55,13 @@ def generate_launch_description():
         'bag_folder',
         description='Path to the ros2 bag folder to play'
     )
+    declare_qos_overrides_cmd = DeclareLaunchArgument(
+        'qos_overrides_path',
+        default_value='',
+        description='Optional path to a QoS profile overrides YAML file, '
+                     'passed to "ros2 bag play --qos-profile-overrides-path". '
+                     'Leave empty to disable.'
+    )
 
     fast_lio_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -72,13 +81,21 @@ def generate_launch_description():
     )
 
     bag_play_proc = ExecuteProcess(
+        cmd=['ros2', 'bag', 'play', bag_folder,
+             '--qos-profile-overrides-path', qos_overrides_path],
+        output='screen',
+        condition=IfCondition(has_qos_overrides)
+    )
+
+    bag_play_proc_no_qos = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', bag_folder],
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(has_qos_overrides)
     )
 
     bag_play_delayed = TimerAction(
         period=3.0,        
-        actions=[bag_play_proc]
+        actions=[bag_play_proc, bag_play_proc_no_qos]
     )
 
     ld = LaunchDescription()
@@ -89,6 +106,7 @@ def generate_launch_description():
     ld.add_action(declare_rviz_cmd)
     ld.add_action(declare_rviz_config_path_cmd)
     ld.add_action(declare_bag_folder_cmd)
+    ld.add_action(declare_qos_overrides_cmd)
     ld.add_action(fast_lio_launch)
     ld.add_action(bag_play_delayed)
 
